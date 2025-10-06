@@ -1,0 +1,3 @@
+# Example ignores:
+# CVE-2021-32803
+# regex:^GHSA-.*$

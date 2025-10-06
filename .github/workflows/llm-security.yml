@@ -1,0 +1,194 @@
+name: LLM Security CI
+on:
+  pull_request:
+  schedule:
+    - cron: "0 5 * * *"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install tools
+        run: |
+          pip install -r requirements.txt
+          pip install garak adversarial-robustness-toolbox pip-audit semgrep bandit gitleaks
+          npm i -g promptfoo
+
+      - name: Check out DVLA target
+        uses: actions/checkout@v4
+        with:
+          repository: ReversecLabs/damn-vulnerable-llm-agent
+          path: targets/dvla
+
+      - name: Check out Recruitment App target
+        uses: actions/checkout@v4
+        with:
+          repository: ReversecLabs/llm-vulnerable-recruitment-app
+          path: targets/recruit
+
+      - name: Build and run containers (mock-LLM + apps)
+        run: |
+          docker compose -f docker-compose.ci.yml build
+          docker compose -f docker-compose.ci.yml up -d
+          for i in {1..30}; do curl -sf http://127.0.0.1:8000/health && break || sleep 2; done
+          for i in {1..30}; do curl -sf http://127.0.0.1:8501/ || sleep 2; done
+          for i in {1..30}; do curl -sf http://127.0.0.1:5000/ || sleep 2; done
+
+      - name: Trivy scan (DVLA image JSON)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'dvla-app:ci'
+          format: 'json'
+          output: 'artifacts/trivy/dvla-image.json'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+
+      - name: Trivy scan (Recruit image JSON)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'recruit-app:ci'
+          format: 'json'
+          output: 'artifacts/trivy/recruit-image.json'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+
+      - name: Trivy filesystem scan (DVLA JSON)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'targets/dvla'
+          format: 'json'
+          output: 'artifacts/trivy/dvla-fs.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+
+      - name: Trivy filesystem scan (Recruit JSON)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'targets/recruit'
+          format: 'json'
+          output: 'artifacts/trivy/recruit-fs.json'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+
+      - name: Trivy scan (DVLA image SARIF)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'dvla-app:ci'
+          format: 'sarif'
+          output: 'artifacts/trivy/dvla-image.sarif'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Trivy scan (Recruit image SARIF)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'recruit-app:ci'
+          format: 'sarif'
+          output: 'artifacts/trivy/recruit-image.sarif'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Trivy FS SARIF (DVLA)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'targets/dvla'
+          format: 'sarif'
+          output: 'artifacts/trivy/dvla-fs.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Trivy FS SARIF (Recruit)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'targets/recruit'
+          format: 'sarif'
+          output: 'artifacts/trivy/recruit-fs.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+      - name: Upload SARIF (Trivy DVLA image)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/trivy/dvla-image.sarif
+
+      - name: Upload SARIF (Trivy Recruit image)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/trivy/recruit-image.sarif
+
+      - name: Upload SARIF (Trivy DVLA fs)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/trivy/dvla-fs.sarif
+
+      - name: Upload SARIF (Trivy Recruit fs)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/trivy/recruit-fs.sarif
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit --format json -o artifacts/pip-audit.json || true
+
+      - name: Semgrep scan (quick)
+        run: semgrep -c p/ci -o artifacts/semgrep.json || true
+
+      - name: SAST bandit (quick)
+        run: bandit -r . -f json -o artifacts/bandit.json || true
+
+      - name: Gitleaks scan (secrets)
+        run: gitleaks detect --source . --report-format json --report-path artifacts/gitleaks.json || true
+
+      - name: Run garak (DVLA + Recruit)
+        run: |
+          mkdir -p artifacts/garak/dvla artifacts/garak/recruit
+          garak --config .github/garak/garak-dvla.toml --target http://127.0.0.1:8501 --output-dir artifacts/garak/dvla --format json || true
+          garak --config .github/garak/garak-recruit.toml --target http://127.0.0.1:5000 --output-dir artifacts/garak/recruit --format json || true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run promptfoo suites
+        run: |
+          mkdir -p artifacts/promptfoo
+          promptfoo eval -c .github/promptfoo/dvla-promptfoo.yaml --json --output artifacts/promptfoo/dvla-results.json || true
+          promptfoo eval -c .github/promptfoo/recruit-promptfoo.yaml --json --output artifacts/promptfoo/recruit-results.json || true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run ART checks
+        run: python scripts/run_art_on_models.py
+
+      - name: Normalize results
+        run: python scripts/normalize_results.py
+
+      - name: Policy gate (fail/warn by branch)
+        run: python scripts/policy_gate.py "${{ github.event.pull_request.base.ref }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-sec-artifacts
+          path: artifacts/**
+
+      - name: Tear down containers
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v

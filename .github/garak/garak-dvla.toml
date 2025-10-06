@@ -1,0 +1,10 @@
+[run]
+model_type = "openai"
+model_name = "gpt-4o-mini"
+probes = ["prompt-injection", "secrets-leakage", "reentrancy"]
+report_format = "json"
+output_dir = "artifacts/garak/dvla"
+
+[target]
+type = "http"
+url = "http://127.0.0.1:8501"

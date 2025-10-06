@@ -1,0 +1,43 @@
+version: "3.9"
+services:
+  mock-llm:
+    build:
+      context: .
+      dockerfile: scripts/mock_llm/Dockerfile
+    image: mock-llm:ci
+    container_name: mock-llm
+    ports:
+      - "8000:8000"
+    networks: [ci_net]
+
+  dvla:
+    image: dvla-app:ci
+    build:
+      context: .
+      dockerfile: ci/Dockerfile.dvla
+    container_name: dvla-app
+    environment:
+      - OPENAI_BASE_URL=http://mock-llm:8000
+      - OPENAI_API_KEY=mock
+    depends_on: [mock-llm]
+    ports:
+      - "8501:8501"
+    networks: [ci_net]
+
+  recruit:
+    image: recruit-app:ci
+    build:
+      context: .
+      dockerfile: ci/Dockerfile.recruit
+    container_name: recruit-app
+    environment:
+      - OPENAI_BASE_URL=http://mock-llm:8000
+      - OPENAI_API_KEY=mock
+    depends_on: [mock-llm]
+    ports:
+      - "5000:5000"
+    networks: [ci_net]
+
+networks:
+  ci_net:
+    driver: bridge

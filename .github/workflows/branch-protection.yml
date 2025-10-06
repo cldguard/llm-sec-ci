@@ -1,0 +1,142 @@
+name: Setup Branch Protection
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/branch-protection.yml']
+
+jobs:
+  setup-branch-protection:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Setup branch protection for main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = 'main';
+            
+            try {
+              await github.rest.repos.updateBranchProtection({
+                owner,
+                repo,
+                branch,
+                required_status_checks: {
+                  strict: true,
+                  contexts: [
+                    'scan',
+                    'test-before-publish'
+                  ]
+                },
+                enforce_admins: true,
+                required_pull_request_reviews: {
+                  required_approving_review_count: 1,
+                  dismiss_stale_reviews: true,
+                  require_code_owner_reviews: true
+                },
+                restrictions: null,
+                allow_force_pushes: false,
+                allow_deletions: false,
+                block_creations: false,
+                required_conversation_resolution: true
+              });
+              
+              console.log('✅ Branch protection rules applied to main branch');
+              
+              // Also protect any tags starting with 'v'
+              await github.rest.repos.createTagProtection({
+                owner,
+                repo,
+                pattern: 'v*.*.*'
+              });
+              
+              console.log('✅ Tag protection rules applied for version tags');
+              
+            } catch (error) {
+              console.error('❌ Error setting up branch protection:', error.message);
+              // Don't fail the workflow if branch protection setup fails
+              // This might happen if the user doesn't have admin rights
+              console.log('ℹ️  Branch protection setup requires admin permissions');
+            }
+
+      - name: Create CODEOWNERS file
+        run: |
+          mkdir -p .github
+          cat > .github/CODEOWNERS << 'EOF'
+          # Global owners
+          * @cldguard/security-team
+          
+          # Security-critical files require additional review
+          .github/workflows/ @cldguard/security-team @cldguard/devops-team
+          scripts/policy_gate.py @cldguard/security-team
+          configs/ @cldguard/security-team
+          docker-compose.ci.yml @cldguard/security-team @cldguard/devops-team
+          
+          # MCP servers require specialized review
+          mcp_servers/ @cldguard/mcp-team @cldguard/security-team
+          
+          # Demo applications
+          targets/ @cldguard/demo-team
+          EOF
+
+      - name: Create PR template
+        run: |
+          mkdir -p .github/pull_request_template
+          cat > .github/pull_request_template/security_review.md << 'EOF'
+          ## Security Review Checklist
+          
+          ### 🔍 Changes Made
+          - [ ] Code changes reviewed for security implications
+          - [ ] No hardcoded secrets or credentials added
+          - [ ] Dependencies checked for known vulnerabilities
+          - [ ] Configuration changes validated
+          
+          ### 🧪 Testing
+          - [ ] Security tests pass locally
+          - [ ] CI pipeline completes successfully
+          - [ ] Manual security testing performed (if applicable)
+          
+          ### 📋 Documentation
+          - [ ] README updated if needed
+          - [ ] Security documentation updated if needed
+          - [ ] CHANGELOG entry added (for releases)
+          
+          ### 🚨 Risk Assessment
+          **Risk Level**: [Low/Medium/High]
+          
+          **Impact**: 
+          - [ ] No impact on security posture
+          - [ ] Improves security posture
+          - [ ] May affect existing security controls (explain below)
+          
+          **Additional Notes**:
+          <!-- Describe any security considerations, breaking changes, or special deployment requirements -->
+          
+          ---
+          
+          /cc @cldguard/security-team
+          EOF
+
+      - name: Commit protection files
+        run: |
+          git config --global user.name 'LLM-Sec-CI Bot'
+          git config --global user.email 'security@cldguard.com'
+          
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add .github/CODEOWNERS .github/pull_request_template/
+            git commit -m "feat: Add branch protection and code review templates
+            
+            - Add CODEOWNERS file for security-critical review requirements
+            - Add PR template for security review checklist
+            - Ensure proper review gates for sensitive components"
+            
+            git push origin main
+            echo "✅ Branch protection files committed to repository"
+          else
+            echo "ℹ️  No changes to commit"
+          fi

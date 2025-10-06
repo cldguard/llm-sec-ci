@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY targets/dvla/ /app/
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi || true
+RUN pip install --no-cache-dir streamlit || true
+ENV OPENAI_API_KEY=mock
+ENV OPENAI_BASE_URL=http://mock-llm:8000
+EXPOSE 8501
+CMD ["streamlit","run","main.py","--server.port","8501","--server.address","0.0.0.0"]

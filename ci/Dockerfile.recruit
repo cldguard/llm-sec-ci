@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY targets/recruit/ /app/
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi || true
+RUN pip install --no-cache-dir flask fastapi uvicorn python-dotenv || true
+ENV OPENAI_API_KEY=mock
+ENV OPENAI_BASE_URL=http://mock-llm:8000
+EXPOSE 5000
+CMD ["python","app.py"]

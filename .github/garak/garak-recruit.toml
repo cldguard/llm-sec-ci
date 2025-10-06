@@ -1,0 +1,10 @@
+[run]
+model_type = "openai"
+model_name = "gpt-4o-mini"
+probes = ["prompt-injection", "pii-detection", "response-format-risk"]
+report_format = "json"
+output_dir = "artifacts/garak/recruit"
+
+[target]
+type = "http"
+url = "http://127.0.0.1:5000"

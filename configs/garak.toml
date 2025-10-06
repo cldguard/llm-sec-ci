@@ -1,0 +1,10 @@
+[run]
+model_type = "openai"
+model_name = "gpt-4o-mini"
+probes = ["prompt-injection", "secrets-leakage"]
+report_format = "json"
+output_dir = "artifacts/garak"
+
+[openai]
+api_key_env = "OPENAI_API_KEY"
+base_url = ""

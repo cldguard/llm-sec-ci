@@ -1,0 +1,328 @@
+name: Publish LLM-Sec-CI Package
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  test-before-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install build twine
+
+      - name: Run quick validation
+        run: |
+          python -m py_compile scripts/*.py
+          python -m py_compile mcp_servers/*.py
+
+  publish-github-release:
+    needs: test-before-publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create release archive
+        run: |
+          mkdir -p dist
+          tar -czf dist/llm-sec-ci-${{ steps.version.outputs.version }}.tar.gz \
+            --exclude='.git*' \
+            --exclude='dist' \
+            --exclude='targets/*/.*' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            .
+
+      - name: Generate changelog
+        run: |
+          echo "# LLM-Sec-CI Release ${{ steps.version.outputs.version }}" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## Features" >> CHANGELOG.md
+          echo "- Complete LLM Security CI/CD Pipeline" >> CHANGELOG.md
+          echo "- Multi-scanner integration (Trivy, Garak, Promptfoo, ART)" >> CHANGELOG.md
+          echo "- Mock LLM for secure CI testing" >> CHANGELOG.md
+          echo "- SARIF integration with GitHub Security" >> CHANGELOG.md
+          echo "- Vulnerable demo applications (DVLA, Recruitment)" >> CHANGELOG.md
+          echo "- MCP server integration for tool orchestration" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## Quick Start" >> CHANGELOG.md
+          echo "\`\`\`bash" >> CHANGELOG.md
+          echo "# Extract and run" >> CHANGELOG.md
+          echo "tar -xzf llm-sec-ci-${{ steps.version.outputs.version }}.tar.gz" >> CHANGELOG.md
+          echo "cd llm-sec-ci" >> CHANGELOG.md
+          echo "pip install -r requirements.txt" >> CHANGELOG.md
+          echo "docker-compose -f docker-compose.ci.yml up -d" >> CHANGELOG.md
+          echo "\`\`\`" >> CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: LLM-Sec-CI ${{ steps.version.outputs.version }}
+          body_path: CHANGELOG.md
+          files: |
+            dist/llm-sec-ci-${{ steps.version.outputs.version }}.tar.gz
+          draft: false
+          prerelease: false
+
+  publish-pypi:
+    needs: test-before-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create PyPI package structure
+        run: |
+          mkdir -p llm_sec_ci_package/llm_sec_ci
+          cp -r scripts llm_sec_ci_package/llm_sec_ci/
+          cp -r mcp_servers llm_sec_ci_package/llm_sec_ci/
+          cp -r configs llm_sec_ci_package/llm_sec_ci/
+          cp -r prompts llm_sec_ci_package/llm_sec_ci/
+          cp -r .github llm_sec_ci_package/llm_sec_ci/
+          cp docker-compose.ci.yml llm_sec_ci_package/llm_sec_ci/
+          cp requirements.txt llm_sec_ci_package/llm_sec_ci/
+          cp README.md llm_sec_ci_package/llm_sec_ci/
+
+      - name: Create setup.py
+        run: |
+          cat > llm_sec_ci_package/setup.py << 'EOF'
+          from setuptools import setup, find_packages
+          import os
+
+          # Read README for long description
+          with open(os.path.join("llm_sec_ci", "README.md"), "r", encoding="utf-8") as fh:
+              long_description = fh.read()
+
+          # Read requirements
+          with open(os.path.join("llm_sec_ci", "requirements.txt"), "r", encoding="utf-8") as fh:
+              requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+
+          setup(
+              name="llm-sec-ci",
+              version="${{ steps.version.outputs.version }}",
+              author="CLDGuard",
+              author_email="security@cldguard.com",
+              description="Comprehensive LLM Security CI/CD Pipeline",
+              long_description=long_description,
+              long_description_content_type="text/markdown",
+              url="https://github.com/cldguard/llm-sec-ci",
+              project_urls={
+                  "Bug Reports": "https://github.com/cldguard/llm-sec-ci/issues",
+                  "Source": "https://github.com/cldguard/llm-sec-ci",
+                  "Documentation": "https://cldguard.com",
+              },
+              packages=find_packages(),
+              include_package_data=True,
+              package_data={
+                  "llm_sec_ci": [
+                      "configs/*",
+                      "prompts/*",
+                      ".github/workflows/*",
+                      ".github/garak/*",
+                      ".github/promptfoo/*",
+                      "docker-compose.ci.yml",
+                      "requirements.txt",
+                      "README.md"
+                  ],
+              },
+              classifiers=[
+                  "Development Status :: 4 - Beta",
+                  "Intended Audience :: Developers",
+                  "Topic :: Security",
+                  "Topic :: Software Development :: Testing",
+                  "License :: OSI Approved :: MIT License",
+                  "Programming Language :: Python :: 3",
+                  "Programming Language :: Python :: 3.11",
+                  "Operating System :: OS Independent",
+              ],
+              python_requires=">=3.11",
+              install_requires=requirements,
+              entry_points={
+                  "console_scripts": [
+                      "llm-sec-ci=llm_sec_ci.scripts.policy_gate:main",
+                  ],
+              },
+              keywords="llm security ci cd pipeline vulnerability scanning",
+              zip_safe=False,
+          )
+          EOF
+
+      - name: Create __init__.py files
+        run: |
+          echo "# LLM-Sec-CI Package" > llm_sec_ci_package/llm_sec_ci/__init__.py
+          echo "__version__ = '${{ steps.version.outputs.version }}'" >> llm_sec_ci_package/llm_sec_ci/__init__.py
+          touch llm_sec_ci_package/llm_sec_ci/scripts/__init__.py
+          touch llm_sec_ci_package/llm_sec_ci/mcp_servers/__init__.py
+
+      - name: Build package
+        run: |
+          cd llm_sec_ci_package
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages_dir: llm_sec_ci_package/dist/
+
+  publish-docker:
+    needs: test-before-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Determine version and tags
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "ghcr.io/cldguard/llm-sec-ci:$VERSION" >> $GITHUB_OUTPUT
+          echo "ghcr.io/cldguard/llm-sec-ci:latest" >> $GITHUB_OUTPUT
+          echo "cldguard/llm-sec-ci:$VERSION" >> $GITHUB_OUTPUT
+          echo "cldguard/llm-sec-ci:latest" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create comprehensive Dockerfile
+        run: |
+          cat > Dockerfile.complete << 'EOF'
+          FROM python:3.11-slim
+
+          # Install system dependencies
+          RUN apt-get update && apt-get install -y \
+              curl \
+              git \
+              nodejs \
+              npm \
+              && rm -rf /var/lib/apt/lists/*
+
+          # Install Node tools
+          RUN npm install -g promptfoo
+
+          # Set working directory
+          WORKDIR /app
+
+          # Copy requirements and install Python dependencies
+          COPY requirements.txt .
+          RUN pip install --no-cache-dir -r requirements.txt && \
+              pip install --no-cache-dir garak adversarial-robustness-toolbox
+
+          # Copy all application files
+          COPY . .
+
+          # Create artifacts directory
+          RUN mkdir -p artifacts
+
+          # Expose ports for MCP servers
+          EXPOSE 8765 8766 8767
+
+          # Default command
+          CMD ["python", "scripts/policy_gate.py", "main"]
+          EOF
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.complete
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-release-summary:
+    needs: [publish-github-release, publish-pypi, publish-docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release summary
+        run: |
+          echo "# 🚀 LLM-Sec-CI Package Published Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Available Distribution Channels:" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Releases**: [Download Source](https://github.com/cldguard/llm-sec-ci/releases)" >> $GITHUB_STEP_SUMMARY
+          echo "- **PyPI**: \`pip install llm-sec-ci\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Hub**: \`docker pull cldguard/llm-sec-ci:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Container Registry**: \`docker pull ghcr.io/cldguard/llm-sec-ci:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔧 Quick Start Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Via Docker (recommended)" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull cldguard/llm-sec-ci:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 8765:8765 -p 8766:8766 -p 8767:8767 cldguard/llm-sec-ci:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Via PyPI" >> $GITHUB_STEP_SUMMARY
+          echo "pip install llm-sec-ci" >> $GITHUB_STEP_SUMMARY
+          echo "llm-sec-ci --help" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
