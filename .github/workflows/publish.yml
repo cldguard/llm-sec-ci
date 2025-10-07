@@ -48,31 +48,34 @@ jobs:
 
       - name: Determine version
         id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ver="${{ github.event.inputs.version }}"
-            # Basic character allowlist to reduce risk (alnum, dot, dash, underscore, plus optional leading v)
-            if [[ "${ver}" == "" ]]; then
-              echo "Input version cannot be empty." >&2; exit 1
-            fi
-            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Invalid version format: ${ver}" >&2; exit 1
-            fi
-            ver="${ver#v}"
-          else
-            # Expecting a tag push like refs/tags/v1.2.3
-            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
-              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
-            fi
-            ver="${GITHUB_REF#refs/tags/v}"
-            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Tag version format invalid: ${ver}" >&2; exit 1
-            fi
-          fi
-          echo "version=${ver}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${ver}" >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const core = require('@actions/core');
+            const eventName = context.eventName;
+            function bad(msg){ core.setFailed(msg); process.exit(1); }
+            function isValid(v){ return /^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$/.test(v); }
+            let ver;
+            if (eventName === 'workflow_dispatch') {
+              let v = process.env.INPUT_VERSION || '';
+              if (!v) bad('version input cannot be empty.');
+              if (v.startsWith('v')) v = v.slice(1);
+                                                                                    
+              if (!isValid(v)) bad(`Invalid version format: ${v}`);
+              ver = v;
+            } else {
+              const ref = process.env.GITHUB_REF || '';
+                                                        
+                                                            
+              if (!ref.startsWith('refs/tags/v')) bad('Expect a tag starting with v (e.g., v1.2.3).');
+              const v = ref.replace(/^refs\/tags\/v/, '');
+                                           
+                                                                                  
+              if (!isValid(v)) bad(`Tag version format invalid: ${v}`);
+              ver = v;
+            }
+            core.setOutput('version', ver);
+            core.setOutput('tag', `v${ver}`)
 
       - name: Create release archive
         run: |
@@ -130,31 +133,34 @@ jobs:
 
       - name: Determine version
         id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ver="${{ github.event.inputs.version }}"
-            # Basic character allowlist to reduce risk (alnum, dot, dash, underscore, plus optional leading v)
-            if [[ "${ver}" == "" ]]; then
-              echo "Input version cannot be empty." >&2; exit 1
-            fi
-            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Invalid version format: ${ver}" >&2; exit 1
-            fi
-            ver="${ver#v}"
-          else
-            # Expecting a tag push like refs/tags/v1.2.3
-            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
-              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
-            fi
-            ver="${GITHUB_REF#refs/tags/v}"
-            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Tag version format invalid: ${ver}" >&2; exit 1
-            fi
-          fi
-          echo "version=${ver}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${ver}" >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const core = require('@actions/core');
+            const eventName = context.eventName;
+            function bad(msg){ core.setFailed(msg); process.exit(1); }
+            function isValid(v){ return /^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$/.test(v); }
+            let ver;
+            if (eventName === 'workflow_dispatch') {
+              let v = process.env.INPUT_VERSION || '';
+              if (!v) bad('version input cannot be empty.');
+              if (v.startsWith('v')) v = v.slice(1);
+                                                                                    
+              if (!isValid(v)) bad(`Invalid version format: ${v}`);
+              ver = v;
+            } else {
+              const ref = process.env.GITHUB_REF || '';
+                                                        
+                                                            
+              if (!ref.startsWith('refs/tags/v')) bad('Expect a tag starting with v (e.g., v1.2.3).');
+              const v = ref.replace(/^refs\/tags\/v/, '');
+                                           
+                                                                                  
+              if (!isValid(v)) bad(`Tag version format invalid: ${v}`);
+              ver = v;
+            }
+            core.setOutput('version', ver);
+            core.setOutput('tag', `v${ver}`)
 
       - name: Create PyPI package structure
         run: |
@@ -275,36 +281,36 @@ jobs:
 
       - name: Determine version and tags
         id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ver="${{ github.event.inputs.version }}"
-            if [[ "${ver}" == "" ]]; then
-              echo "Input version cannot be empty." >&2; exit 1
-            fi
-            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Invalid version format: ${ver}" >&2; exit 1
-            fi
-            ver="${ver#v}"
-          else
-            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
-              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
-            fi
-            ver="${GITHUB_REF#refs/tags/v}"
-            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
-              echo "Tag version format invalid: ${ver}" >&2; exit 1
-            fi
-          fi
-          echo "version=${ver}" >> "$GITHUB_OUTPUT"
-          {
-            echo "tags<<EOF"
-            echo "ghcr.io/cldguard/llm-sec-ci:${ver}"
-            echo "ghcr.io/cldguard/llm-sec-ci:latest"
-            echo "cldguard/llm-sec-ci:${ver}"
-            echo "cldguard/llm-sec-ci:latest"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const core = require('@actions/core');
+            const v = process.env.VERSION || process.env.INPUT_VERSION || '${{ steps.version.outputs.version }}';
+            if (!v) { core.setFailed('Missing version for tag computation'); process.exit(1); }
+            const ver = v.replace(/^v/, '');
+            core.setOutput('version', ver);
+            // Emit a JSON array of tags to be consumed with fromJSON(...)
+                                                               
+              
+                          
+              
+                                                            
+                                                                                            
+              
+            const tags = [
+                                                                                  
+                                                                   
+              
+            
+                                                   
+           
+                            
+              `ghcr.io/cldguard/llm-sec-ci:${ver}`,
+              'ghcr.io/cldguard/llm-sec-ci:latest',
+              `cldguard/llm-sec-ci:${ver}`,
+              'cldguard/llm-sec-ci:latest'
+            ];
+            core.setOutput('tags', JSON.stringify(tags));
 
       - name: Create comprehensive Dockerfile
         run: |
