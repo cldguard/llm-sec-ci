@@ -1,8 +1,0 @@
-Flask==2.3.3
-markdown==3.4.4
-SQLAlchemy==2.0.21
-torch==2.0.1
-transformers==4.30.2
-openai==0.28.1
-python-dotenv==1.0.0
-numpy<2.0.0
