@@ -48,14 +48,31 @@ jobs:
 
       - name: Determine version
         id: version
+        shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
+            ver="${{ github.event.inputs.version }}"
+            # Basic character allowlist to reduce risk (alnum, dot, dash, underscore, plus optional leading v)
+            if [[ "${ver}" == "" ]]; then
+              echo "Input version cannot be empty." >&2; exit 1
+            fi
+            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Invalid version format: ${ver}" >&2; exit 1
+            fi
+            ver="${ver#v}"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            # Expecting a tag push like refs/tags/v1.2.3
+            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
+              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
+            fi
+            ver="${GITHUB_REF#refs/tags/v}"
+            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Tag version format invalid: ${ver}" >&2; exit 1
+            fi
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${ver}" >> "$GITHUB_OUTPUT"
 
       - name: Create release archive
         run: |
@@ -113,13 +130,31 @@ jobs:
 
       - name: Determine version
         id: version
+        shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
+            ver="${{ github.event.inputs.version }}"
+            # Basic character allowlist to reduce risk (alnum, dot, dash, underscore, plus optional leading v)
+            if [[ "${ver}" == "" ]]; then
+              echo "Input version cannot be empty." >&2; exit 1
+            fi
+            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Invalid version format: ${ver}" >&2; exit 1
+            fi
+            ver="${ver#v}"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            # Expecting a tag push like refs/tags/v1.2.3
+            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
+              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
+            fi
+            ver="${GITHUB_REF#refs/tags/v}"
+            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Tag version format invalid: ${ver}" >&2; exit 1
+            fi
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${ver}" >> "$GITHUB_OUTPUT"
 
       - name: Create PyPI package structure
         run: |
@@ -240,19 +275,36 @@ jobs:
 
       - name: Determine version and tags
         id: meta
+        shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
+            ver="${{ github.event.inputs.version }}"
+            if [[ "${ver}" == "" ]]; then
+              echo "Input version cannot be empty." >&2; exit 1
+            fi
+            if [[ ! "${ver}" =~ ^v?[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Invalid version format: ${ver}" >&2; exit 1
+            fi
+            ver="${ver#v}"
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
+            if [[ "${GITHUB_REF:-}" != refs/tags/v* ]]; then
+              echo "This workflow expects a tag starting with v (e.g., v1.2.3)." >&2; exit 1
+            fi
+            ver="${GITHUB_REF#refs/tags/v}"
+            if [[ ! "${ver}" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z]+)*$ ]]; then
+              echo "Tag version format invalid: ${ver}" >&2; exit 1
+            fi
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "ghcr.io/cldguard/llm-sec-ci:$VERSION" >> $GITHUB_OUTPUT
-          echo "ghcr.io/cldguard/llm-sec-ci:latest" >> $GITHUB_OUTPUT
-          echo "cldguard/llm-sec-ci:$VERSION" >> $GITHUB_OUTPUT
-          echo "cldguard/llm-sec-ci:latest" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            echo "ghcr.io/cldguard/llm-sec-ci:${ver}"
+            echo "ghcr.io/cldguard/llm-sec-ci:latest"
+            echo "cldguard/llm-sec-ci:${ver}"
+            echo "cldguard/llm-sec-ci:latest"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create comprehensive Dockerfile
         run: |
