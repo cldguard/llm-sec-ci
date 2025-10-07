@@ -13,6 +13,9 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
+    env:
+      TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+      POLICY_MODE: ${{ ((github.event_name == 'pull_request' && github.base_ref == 'main') || github.ref_name == 'main') && 'fail' || 'warn' }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -181,7 +184,10 @@ jobs:
         run: python scripts/normalize_results.py
 
       - name: Policy gate (fail/warn by branch)
-        run: python scripts/policy_gate.py "${{ github.event.pull_request.base.ref }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/policy_gate.py --mode "${POLICY_MODE}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
